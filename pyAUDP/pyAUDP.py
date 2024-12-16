@@ -3,7 +3,7 @@ import socket
 import threading
 
 from time import time_ns
-from queue import Queue, Empty, Full
+from queue import SimpleQueue, Empty, Full
 from typing import Callable, Optional, Tuple, Union
 
 
@@ -231,7 +231,7 @@ class UDP:
 
             self.pkt_size = pkt_size
             self.with_timestamps = with_timestamps
-            self._rx_queue = Queue()
+            self._rx_queue = SimpleQueue()
 
         def run(self) -> None:
             """
@@ -248,16 +248,17 @@ class UDP:
                         )
                     )
                 except OSError as e:
-                    self.logger.warning(
-                        "Socket probably timed out at receiving data. For more info check set logger to `INFO`."
+                    self.logger.debug(
+                        "Socket probably timed out at receiving data."
                     )
-                    self.logger.info("SOCKET_ERROR: {e}")
+                    self.logger.debug(f"SOCKET_ERROR: {e}")
                     continue
                 except Full:
                     self.logger.error("RX queue is full!")
                     continue
             self.logger.debug("Waiting for user to receive all packages from RX queue.")
-            self._rx_queue.join()
+            while not self._rx_queue.empty():
+                pass
             self.logger.debug("RX thread leaving")
 
         def get_pkt(
@@ -275,7 +276,6 @@ class UDP:
             """
             try:
                 data = self._rx_queue.get(block, timeout)
-                self._rx_queue.task_done()
                 return data
             except Empty:
                 self.logger.warning("RX queue is empty, nothing to return")
@@ -307,7 +307,7 @@ class UDP:
 
             self.logger = logger
 
-            self._tx_queue = Queue()
+            self._tx_queue = SimpleQueue()
 
         def run(self) -> None:
             """
@@ -325,7 +325,7 @@ class UDP:
                     self.logger.debug(f"Sent message to {remote_address}")
                 except OSError as e:
                     self.logger.error("Socket failed to send data.")
-                    self.logger.error("SOCKET_ERROR: {e}")
+                    self.logger.error(f"SOCKET_ERROR: {e}")
                     continue
                 except Empty:
                     self.logger.info("Nothing to send, continuing.")

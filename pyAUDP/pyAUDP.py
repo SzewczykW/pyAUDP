@@ -5,6 +5,7 @@ import threading
 from time import time_ns
 from queue import SimpleQueue, Empty, Full
 from typing import Callable, Optional, Tuple, Union
+from ipaddress import ip_address, IPv4Address
 
 
 class UDPCommunicationIsStoppedException(Exception):
@@ -29,7 +30,7 @@ class UDP:
 
     def __init__(
         self,
-        local_address: Tuple[str, int],
+        local_address: Union[str, Tuple[str, int]],
         rx_with_timestamps: bool = False,
         logger: Optional[logging.Logger] = None,
         socket_timeout: Optional[float] = None,
@@ -74,7 +75,20 @@ class UDP:
             socket.AF_INET, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK
         )
 
-        self._socket.bind(local_address)
+        if (
+            isinstance(self.local_address, tuple)
+            and len(self.local_address) == 2
+            and isinstance(ip_address(self.local_address[0]), IPv4Address)
+        ):
+            self._socket.bind(local_address)
+        elif isinstance(self.local_address, str) and isinstance(
+            ip_address(self.local_address), IPv4Address
+        ):
+            self._socket.bind((local_address, 0))
+        else:
+            raise TypeError(
+                "`local_address` has to be either string containing IPv4 address or tuple with IPv4 address as first element and port number as second"
+            )
 
         if socket_timeout is not None:
             self._socket.settimeout(socket_timeout)
@@ -206,15 +220,19 @@ class UDP:
         * `TypeError`: if address components have wrong types.
         """
         if not isinstance(pkt, tuple) or len(pkt) != 2:
-            raise ValueError("Packet must be a tuple of (data: Union[bytes, bytearray], address: Tuple[str, int]).")
-
+            raise ValueError(
+                "Packet must be a tuple of (data: Union[bytes, bytearray], address: Tuple[str, int])."
+            )
         data, addr = pkt
+
         if not isinstance(addr, tuple) or len(addr) != 2:
             raise ValueError("Address must be a tuple of (host: str, port: int).")
-
         host, port = addr
-        if not isinstance(host, str):
-            raise TypeError(f"Host must be a string, got {type(host)}.")
+
+        if not isinstance(host, str) or not isinstance(ip_address(host), IPv4Address):
+            raise TypeError(
+                f"Host must be a string containing valid IPv4 address, got {type(host)}."
+            )
         if not isinstance(port, int):
             raise TypeError(f"Port must be an integer, got {type(port)}.")
 
@@ -274,9 +292,7 @@ class UDP:
                         )
                     )
                 except OSError as e:
-                    self.logger.debug(
-                        "Socket probably timed out at receiving data."
-                    )
+                    self.logger.debug("Socket probably timed out at receiving data.")
                     self.logger.debug(f"SOCKET_ERROR: {e}")
                     continue
                 except Full:
